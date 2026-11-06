@@ -38,6 +38,26 @@ class IdemLedger:
                             pass
         return rows
 
+    def lookup(self, step, op, biz_key, day=None):
+        """只查不记：同条件是否已做过（返回先例行或 None）"""
+        key, _raw = make_key(self.ctx.store, step, op, biz_key, day)
+        rows = self._load()
+        return next((r for r in rows if r.get("key") == key), None)
+
+    def record(self, step, op, biz_key, day=None, meta=None):
+        """只记不查：业务成功确认后落账（已存在则不重复落）"""
+        key, raw = make_key(self.ctx.store, step, op, biz_key, day)
+        rows = self._load()
+        if any(r.get("key") == key for r in rows):
+            return False
+        row = {"ts": now_str(), "store": self.ctx.store, "key": key, "raw": raw,
+               "step": str(step), "op": op, "biz_key": str(biz_key), "day": day}
+        if meta:
+            row["meta"] = meta
+        with open(self.file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        return True
+
     def check_and_record(self, step, op, biz_key, day=None, meta=None):
         """返回 (allowed, prior_row_or_None)。allowed=False 表示同条件已做过，必须跳过。"""
         key, raw = make_key(self.ctx.store, step, op, biz_key, day)
