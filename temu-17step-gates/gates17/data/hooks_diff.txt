@@ -1,0 +1,100 @@
+﻿# gates17 判定钩子注入差异（判定器+产物登记 进入 17 步脚本链）
+#
+注：备份 = <wrapper>.bak-gates17-20261106_155627（sales7: 运行主脚本.ps1.bak-gates17-20261106）
+
+## pitfall-wrapper-step01.ps1  (step hook)
+```diff
+diff --git "a/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-step01.ps1.bak-gates17-20261106_155627" "b/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-step01.ps1"
+index f33275c..78df846 100644
+--- "a/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-step01.ps1.bak-gates17-20261106_155627"
++++ "b/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-step01.ps1"
+@@ -1,4 +1,4 @@
+-$env:Path = $env:Path + ';C:\Users\Administrator\.local\bin'
++﻿$env:Path = $env:Path + ';C:\Users\Administrator\.local\bin'
+ $ErrorActionPreference = 'Continue'
+ $ProgressPreference = 'SilentlyContinue'
+ [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+@@ -25,5 +25,19 @@ try {
+   $verified = Test-RunSuccess -RunDir $RunDir
+   $ok = ($ec -eq 0 -and $verified)
+   if($ok){ Write-PitfallLog 'success'; Invoke-PitfallPostflight -RunDir $RunDir -Success | Out-Null } else { $errMsg="exit code: $ec; verified: $verified"; Write-PitfallLog $errMsg 'ERROR'; Record-RunIncident -ErrorMessage $errMsg -RunDir $RunDir -Source $PitfallName; Invoke-PitfallPostflight -RunDir $RunDir -ErrorMessage $errMsg | Out-Null }
+-  exit $ec
++  # === gates17 hook 20261106 ===
++try {
++  $gatesArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\Administrator\Desktop\Temu中控台\gates17\gates_hook.py','--store','local','--step','1','--name','pitfall-wrapper-step01.ps1','--exitcode',"$ec")
++  if ($RunDir) { $gatesArgs += @('--rundir', $RunDir) }
++  & 'C:\Program Files\Python311\python.exe' @gatesArgs | Out-Host
++  if ($LASTEXITCODE -eq 3) {
++    Write-PitfallLog '[gates17] judge verdict=failed; false-success blocked, exit code rewritten to 1' 'ERROR'
++    $ec = 1
++    $global:LASTEXITCODE = 1
++  }
++} catch {
++  Write-PitfallLog ('[gates17] hook error (not blocking business): ' + $_.Exception.Message) 'ERROR'
++}
++# === end gates17 hook ===
++exit $ec
+ } catch { $errMsg=$_.Exception.Message; Write-PitfallLog $errMsg 'ERROR'; Record-RunIncident -ErrorMessage $errMsg -RunDir $RunDir -Source $PitfallName; Invoke-PitfallPostflight -RunDir $RunDir -ErrorMessage $errMsg | Out-Null; exit 1 }
+\ No newline at end of file
+```
+
+## pitfall-wrapper-kuaidi.ps1  (step hook)
+```diff
+diff --git "a/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-kuaidi.ps1.bak-gates17-20261106_155627" "b/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-kuaidi.ps1"
+index 7e23498..4ab8579 100644
+--- "a/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-kuaidi.ps1.bak-gates17-20261106_155627"
++++ "b/C:\\Users\\Administrator\\pitfalls\\pitfall-wrapper-kuaidi.ps1"
+@@ -1,4 +1,4 @@
+-$env:Path = $env:Path + ';C:\Users\Administrator\.local\bin'
++﻿$env:Path = $env:Path + ';C:\Users\Administrator\.local\bin'
+ $ErrorActionPreference = 'Continue'
+ $ProgressPreference = 'SilentlyContinue'
+ [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+@@ -63,7 +63,21 @@ try {
+     Record-RunIncident -ErrorMessage $errMsg -RunDir $RunDir -Source $PitfallName
+     Invoke-PitfallPostflight -RunDir $RunDir -ErrorMessage $errMsg | Out-Null
+   }
+-  exit $ec
++  # === gates17 hook 20261106 ===
++try {
++  $gatesArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\Administrator\Desktop\Temu中控台\gates17\gates_hook.py','--store','local','--step','15','--name','pitfall-wrapper-kuaidi.ps1','--exitcode',"$ec")
++  if ($RunDir) { $gatesArgs += @('--rundir', $RunDir) }
++  & 'C:\Program Files\Python311\python.exe' @gatesArgs | Out-Host
++  if ($LASTEXITCODE -eq 3) {
++    Write-PitfallLog '[gates17] judge verdict=failed; false-success blocked, exit code rewritten to 1' 'ERROR'
++    $ec = 1
++    $global:LASTEXITCODE = 1
++  }
++} catch {
++  Write-PitfallLog ('[gates17] hook error (not blocking business): ' + $_.Exception.Message) 'ERROR'
++}
++# === end gates17 hook ===
++exit $ec
+ } catch {
+   $errMsg=$_.Exception.Message
+   Write-PitfallLog $errMsg 'ERROR'
+```
+
+## 运行主脚本.ps1  (step hook)
+```diff
+diff --git "a/C:\\Users\\Administrator\\Desktop\\\351\224\200\351\207\217\350\277\2217\346\227\2450\\\350\277\220\350\241\214\344\270\273\350\204\232\346\234\254.ps1.bak-gates17-20261106" "b/C:\\Users\\Administrator\\Desktop\\\351\224\200\351\207\217\350\277\2217\346\227\2450\\\350\277\220\350\241\214\344\270\273\350\204\232\346\234\254.ps1"
+index 015e4c9..7ec68af 100644
+--- "a/C:\\Users\\Administrator\\Desktop\\\351\224\200\351\207\217\350\277\2217\346\227\2450\\\350\277\220\350\241\214\344\270\273\350\204\232\346\234\254.ps1.bak-gates17-20261106"
++++ "b/C:\\Users\\Administrator\\Desktop\\\351\224\200\351\207\217\350\277\2217\346\227\2450\\\350\277\220\350\241\214\344\270\273\350\204\232\346\234\254.ps1"
+@@ -209,5 +209,13 @@ try {
+     if ($interactive) {
+         Read-Host "Press Enter to close"
+     }
+-    exit $exitCode
++    
++# === gates17 hook 20261106 ===
++try {
++  $gatesArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File','C:\Users\Administrator\Desktop\Temu中控台\gates17\gates_hook.py','--store','local','--step','42','--name','sales7','--exitcode',"$exitCode")
++  & 'C:\Program Files\Python311\python.exe' @gatesArgs | Out-Host
++  if ($LASTEXITCODE -eq 3) { Write-Host '[gates17] judge verdict=failed; false-success blocked, exit rewritten to 1'; $exitCode = 1 }
++} catch { Write-Host ('[gates17] hook error (not blocking business): ' + $_.Exception.Message) }
++# === end gates17 hook ===
++exit $exitCode
+ }
+```
+

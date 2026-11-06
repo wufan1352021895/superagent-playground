@@ -1,0 +1,13 @@
+{
+  "store": "sewing",
+  "store_name": "Sewing tools (吴凡机店)",
+  "machine": "吴凡机 DESKTOP-07I8A8M / 吴凡",
+  "roots": [
+    "C:\\Users\\Administrator\\Desktop\\Temu中控台\\store_mirror\\sewing-tools",
+    "C:\\Users\\Administrator\\Desktop\\Temu中控台\\gates17\\wufan_pull"
+  ],
+  "registry": "artifacts_sewing.jsonl",
+  "verdicts": "verdicts_sewing.jsonl",
+  "idem": "idem_sewing.jsonl",
+  "note": "禁混店：sewing 店上下文只允许判定吴凡机镜像/回传文件；本机业务树文件一律拒绝，防混店。"
+}

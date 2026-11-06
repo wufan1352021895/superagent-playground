@@ -1,0 +1,151 @@
+# gates17 生产接线（2026-11-06 第二批）
+把三处"已建成未接生产"接进真实脚本（接前双备份 *.bak-gates17-20261106）：
+
+1) 幂等防重复 → 01. 备货.py（真提交循环）
+   - 模块头加载 gates17 账本（fail-open），成功确认（行内"今日已备货"）才落账。
+   - 补扫逐条段：提交前查账，同店同日同 SKC 已交过 → 记 skipped 不再申请（硬拦截）。
+   - 主提交段：提交后逐条落账审计 + 平台"今日已备货"天然幂等。
+2) 第1道动作回读：备货引擎自带行内回读（"成功依据只能是提交成功或今日已备货"），
+   用例2/4/7（test_备货判定器.py）已验证"提交未确认=失败"的口径，未重复改 JS 点击段。
+3) 第5道灰度闸 → Temu中控台\remote_control_wufan.ps1 pccoderun/skcretrun 入口（ASCII 块，保留 BOM）：
+   - 批量(>1 条)无当日真人首件 token → gates17-gray-blocked，不触达吴凡机；
+   - 单条 = 首件：放行并自动落 checklist 到 gates17\data\tokens\checklist_<op>_<day>.json；
+   - 真人核完首件后 python gates17\gray.py confirm --op <op> --by <姓名> 放行当日批量。
+
+验证：py_compile 0；PS Parser 0 错；账本 lookup/record/reset 回环过；批量2条 mock 拦截实测；
+selftest_all.py ALL PASS（含黄金样本固化 10 个）；test_备货判定器.py 7/7 PASS。
+
+diff --git "a/C:\\Users\\Administrator\\Desktop\\01. \345\244\207\350\264\247.py.bak-gates17-20261106" "b/C:\\Users\\Administrator\\Desktop\\01. \345\244\207\350\264\247.py"
+index 62adea9..618bb79 100644
+--- "a/C:\\Users\\Administrator\\Desktop\\01. \345\244\207\350\264\247.py.bak-gates17-20261106"	
++++ "b/C:\\Users\\Administrator\\Desktop\\01. \345\244\207\350\264\247.py"	
+@@ -55,6 +55,42 @@ if AI6_STEPS_DIR not in sys.path:
+ # 灰度时设 TEMU_RESTOCK_MAX_SUBMIT=1，先只真做 1 条，人工到平台核这条对不对。
+ SUBMIT_LIMIT = int(os.environ.get("TEMU_RESTOCK_MAX_SUBMIT", "0") or 0)
+ 
++# --------------------------------------------------------------------------- 幂等防重复（gates17 外加判定，2026-11-06）
++# 同店同日同 SKC 已成功提交过的（行内已确认「今日已备货」），补扫/重跑一律跳过，不再重复申请。
++# 账本 = gates17/idempotency.py，键 sha256(店|步|操作|业务键|日)，成功确认后才落账。
++# 主提交段（JS 批量）为提交后落账审计 + 平台「今日已备货」天然幂等；补扫逐条段为提交前查账硬拦截。
++# 账本框架加载失败 → fail-open 照旧跑（gates_hook 判定钩子仍在兜底）。
++try:
++    _GATES17_DIR = os.path.join(os.path.expanduser("~"), "Desktop", "Temu中控台", "gates17")
++    if _GATES17_DIR not in sys.path:
++        sys.path.insert(0, _GATES17_DIR)
++    from temu_gates import StoreContext as _GatesStoreContext  # noqa: E402
++    from idempotency import IdemLedger as _GatesIdemLedger  # noqa: E402
++    IDEM = _GatesIdemLedger(_GatesStoreContext("store_local.json"))
++except Exception as _e:  # fail-open
++    print("[idempotency] 账本不可用(%s)，本次按无账本运行" % _e)
++    IDEM = None
++
++
++def idem_done(skc):
++    """只查不记：该 SKC 今日是否已成功提交过。"""
++    if IDEM is None:
++        return False
++    try:
++        return IDEM.lookup("1", "restock_submit", str(skc)) is not None
++    except Exception:
++        return False
++
++
++def idem_mark(skc, meta=None):
++    """成功确认后落账；失败静默（不影响业务），判定钩子仍会记账。"""
++    if IDEM is None:
++        return
++    try:
++        IDEM.record("1", "restock_submit", str(skc), meta=meta)
++    except Exception as _e:
++        print("[idempotency] 落账失败(%s)：skc=%s" % (_e, skc))
++
+ # --------------------------------------------------------------------------- step1 可配置操作
+ # 2026-10-28：阶段开关与快速筛选卡以 Temu中控台/data/step1_ops.json 为准。
+ DEFAULT_STEP1_STAGES = [
+@@ -1675,6 +1711,10 @@ class RestockEngine:
+                         "灰度闸：本页中途达到 %d 条上限，停止继续申请" % SUBMIT_LIMIT)
+                     break
+                 processed.add(item["skc"])
++                if idem_done(item["skc"]):
++                    result["skipped"].append({"source": "guide-scan", "skc": item["skc"], "sku": item.get("sku"),
++                                              "reason": "幂等账本：本店今日该 SKC 已成功提交过，跳过（防重复）"})
++                    continue
+                 if not item.get("hasAction"):
+                     result["failed"].append({"source": "guide-scan", "skc": item["skc"],
+                                              "sku": item.get("sku"), "reason": "申请备货入口未找到"})
+@@ -1697,6 +1737,7 @@ class RestockEngine:
+                         r = applied.get("result") or {}
+                 kind = r.get("kind")
+                 if kind == "submitted":
++                    idem_mark(item["skc"], meta={"via": "guide-scan", "result": r.get("result")})
+                     result["submitted"].append(r)
+                 elif kind == "planned":
+                     result["planned"].append(r)
+@@ -2122,6 +2163,10 @@ class RestockEngine:
+                     "FILTERS_PLACEHOLDER", json.dumps(FILTERS, ensure_ascii=False)).replace(
+                     "SUBMIT_LIMIT_PLACEHOLDER", str(SUBMIT_LIMIT))
+                 self.submit_data = self.decode_b64_json(self.tb.evaljs(js))
++                # 幂等落账：主提交段行内已确认「今日已备货」的才计 submitted，逐条落账（审计+防补扫重复）
++                for _s in (self.submit_data or {}).get("submitted") or []:
++                    if _s.get("skc"):
++                        idem_mark(_s["skc"], meta={"via": "submit", "result": _s.get("result")})
+                 print(json.dumps(self.submit_data, ensure_ascii=False))
+             else:
+                 self._skip_stage("submit")
+
+diff --git "a/C:\\Users\\Administrator\\Desktop\\Temu\344\270\255\346\216\247\345\217\260\\remote_control_wufan.ps1.bak-gates17-20261106" "b/C:\\Users\\Administrator\\Desktop\\Temu\344\270\255\346\216\247\345\217\260\\remote_control_wufan.ps1"
+index 178fbcd..3c69686 100644
+--- "a/C:\\Users\\Administrator\\Desktop\\Temu\344\270\255\346\216\247\345\217\260\\remote_control_wufan.ps1.bak-gates17-20261106"
++++ "b/C:\\Users\\Administrator\\Desktop\\Temu\344\270\255\346\216\247\345\217\260\\remote_control_wufan.ps1"
+@@ -1015,7 +1015,24 @@ try {
+                     $seen[$v] = $true; $pcList += $v
+                 }
+             }
+-            if (-not $pcList) { Emit @{ ok=$false; online=$true; action='pccoderun'; reason='no-pcs' }; return }
++            if (-not $pcList) { Emit @{ ok=$false; online=$true; action='pccoderun'; reason='no-pcs' }; return }
++            # === gates17 gate5 gray (2026-11-06): batch needs human first-piece token; single pc = first piece allowed ===
++            $g17TokDir = Join-Path $PSScriptRoot 'gates17\data\tokens'
++            $g17Today = (Get-Date).ToString('yyyy-MM-dd')
++            $g17Tok = Join-Path $g17TokDir ('pccoderun_' + $g17Today + '.token')
++            if ($pcList.Count -gt 1 -and -not (Test-Path -LiteralPath $g17Tok)) {
++                Emit @{ ok=$false; online=$true; action='pccoderun'; reason='gates17-gray-blocked'; batch=$pcList.Count; token=$g17Tok;
++                        message='gates17 gate5: batch pccoderun without human-confirm token. Run 1 pc (first piece), verify it on the platform, then confirm via: python gates17\gray.py confirm --op pccoderun --by <name>' }
++                return
++            }
++            if ($pcList.Count -eq 1) {
++                try {
++                    New-Item -ItemType Directory -Force -Path $g17TokDir | Out-Null
++                    $g17Cl = @{ ts=(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); op='pccoderun'; day=$g17Today; first_item=$pcList[0]; note='first-piece checklist: human verifies this one on platform, then confirm token to unlock batch' }
++                    [IO.File]::WriteAllText((Join-Path $g17TokDir ('checklist_pccoderun_' + $g17Today + '.json')), ($g17Cl | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($true)))
++                } catch {}
++            }
++            # === end gates17 gate5 ===
+             # 17:00 护栏（快递下班，预约取货18:00安排不了；远程脚本自身也会 exit 3，这里提前挡）
+             # 已接进「时间护栏开关」：读 吴凡机 pc码\config.ps1 的 $TimeGuard/$TimeGuardHour（与 pccodeguard 同一套解析）。
+             # 开关=关 或 环境变量 TEMU_FORCE_AFTER_17=1 时放行，不再硬编码拦截。
+@@ -1178,7 +1195,24 @@ try {
+                     $seenS[$v] = $true; $skcList += $v
+                 }
+             }
+-            if (-not $skcList) { Emit @{ ok=$false; online=$true; action='skcretrun'; reason='no-skcs' }; return }
++            if (-not $skcList) { Emit @{ ok=$false; online=$true; action='skcretrun'; reason='no-skcs' }; return }
++            # === gates17 gate5 gray (2026-11-06): batch needs human first-piece token; single skc = first piece allowed ===
++            $g17TokDirS = Join-Path $PSScriptRoot 'gates17\data\tokens'
++            $g17TodayS = (Get-Date).ToString('yyyy-MM-dd')
++            $g17TokS = Join-Path $g17TokDirS ('skcretrun_' + $g17TodayS + '.token')
++            if ($skcList.Count -gt 1 -and -not (Test-Path -LiteralPath $g17TokS)) {
++                Emit @{ ok=$false; online=$true; action='skcretrun'; reason='gates17-gray-blocked'; batch=$skcList.Count; token=$g17TokS;
++                        message='gates17 gate5: batch skcretrun without human-confirm token. Run 1 skc (first piece), verify it on the platform, then confirm via: python gates17\gray.py confirm --op skcretrun --by <name>' }
++                return
++            }
++            if ($skcList.Count -eq 1) {
++                try {
++                    New-Item -ItemType Directory -Force -Path $g17TokDirS | Out-Null
++                    $g17ClS = @{ ts=(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); op='skcretrun'; day=$g17TodayS; first_item=$skcList[0]; delist_only=[bool]$DelistOnly; note='first-piece checklist: human verifies this one on platform, then confirm token to unlock batch' }
++                    [IO.File]::WriteAllText((Join-Path $g17TokDirS ('checklist_skcretrun_' + $g17TodayS + '.json')), ($g17ClS | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($true)))
++                } catch {}
++            }
++            # === end gates17 gate5 ===
+             # 关键坑：WinRM 传递 [string[]] 数组会被截断成第一个元素（实测 3 个只剩 1 个），
+             # 所以这里传逗号串、在远程块内 split。
+             $aSkc   = [string]($skcList -join ',')

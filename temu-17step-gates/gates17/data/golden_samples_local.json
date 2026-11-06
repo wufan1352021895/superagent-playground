@@ -1,0 +1,50 @@
+{
+  "frozen_at": "2026-11-06 15:50:04",
+  "store": "local",
+  "sources": {
+    "onsale": "C:\\Users\\Administrator\\Desktop\\txt\\在售中货号.txt",
+    "offsale": "C:\\Users\\Administrator\\Desktop\\txt\\不在在售中不在上新.txt"
+  },
+  "samples": [
+    {
+      "sku": "120",
+      "expect_onsale": "是"
+    },
+    {
+      "sku": "141",
+      "expect_onsale": "是"
+    },
+    {
+      "sku": "143",
+      "expect_onsale": "是"
+    },
+    {
+      "sku": "148",
+      "expect_onsale": "是"
+    },
+    {
+      "sku": "164",
+      "expect_onsale": "是"
+    },
+    {
+      "sku": "193",
+      "expect_onsale": "是"
+    },
+    {
+      "sku": "418",
+      "expect_onsale": "否"
+    },
+    {
+      "sku": "458",
+      "expect_onsale": "否"
+    },
+    {
+      "sku": "460",
+      "expect_onsale": "否"
+    },
+    {
+      "sku": "461",
+      "expect_onsale": "否"
+    }
+  ]
+}
