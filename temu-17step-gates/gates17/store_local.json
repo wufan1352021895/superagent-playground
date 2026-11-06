@@ -1,0 +1,16 @@
+{
+  "store": "local",
+  "store_name": "Wei Qi Measurement (本机店)",
+  "machine": "本机 DESKTOP-VHV1N0K / Administrator",
+  "roots": [
+    "C:\\Users\\Administrator\\Desktop"
+  ],
+  "deny_roots": [
+    "C:\\Users\\Administrator\\Desktop\\Temu中控台\\store_mirror\\sewing-tools",
+    "C:\\Users\\Administrator\\Desktop\\Temu中控台\\gates17\\wufan_pull"
+  ],
+  "registry": "artifacts_local.jsonl",
+  "verdicts": "verdicts_local.jsonl",
+  "idem": "idem_local.jsonl",
+  "note": "禁混店：本店上下文只允许判定本机 Desktop 业务树文件。"
+}
